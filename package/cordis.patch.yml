@@ -1,0 +1,43 @@
+# 用户注意力与超时待办收件箱 bundle：一张插件卡，两个可独立启停的组件。
+#
+# 组件 1（user-attention，包 @local/dsh-user-attention-core）：
+#   在线/暂离/离线状态机、人类交互门控、userAttention 服务、超时策略与推荐项自动回答。
+# 组件 2（todo-inbox，包 @local/dsh-todo-inbox）：
+#   持久待办收件箱、todo_list/todo_get/todo_execute、一次性 approval grant、右栏页面与输入框高亮条。
+#
+# 两个组件各自有 Client 半身（各自的 dsh.client 与 client.js），因此在插件管理里
+# 显示为同一张插件卡下的两个可开关行；关掉其中一个不会影响另一个的加载：
+#   - 只开注意力：超时策略固定为拒绝，入队选项自动隐藏；
+#   - 只开待办：收件箱照常工作，bundle 设置页顶部显示“注意力组件未启用”的橙色说明。
+#
+# 本行 config 只是默认值；用户在插件详情页保存时写回本 profile 的 patch 覆盖层。
+- insert:
+    - id: user-attention
+      name: '@local/dsh-user-attention-core'
+      config:
+        # 空闲多久判定为暂离（毫秒）
+        idleTimeoutMs: 300000
+        # 暂离期间提醒重试次数与间隔
+        awayRetryCount: 5
+        awayRetryIntervalMs: 30000
+        tickMs: 5000
+        pollIntervalMs: 1500
+        initialState: online
+        persistManualState: true
+        # 批准/提问超时：reject（拒绝）| enqueue（拒绝并加入待办）
+        approvalTimeoutAction: enqueue
+        questionTimeoutAction: enqueue
+        # 多选项：有推荐项（(Recommended) / （推荐））时优先按推荐项自动回答
+        preferRecommended: false
+        # home: 'Z:\\DSH-Data'
+
+    - id: todo-inbox
+      name: '@local/dsh-todo-inbox'
+      config:
+        # 自动收进被注意力组件最终拒绝的交互
+        autoEnqueue: true
+        # 客户端轮询间隔（毫秒）
+        pollIntervalMs: 2000
+        # 最多保留多少条待办
+        maxTodos: 200
+        # home: 'Z:\\DSH-Data'

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "User Attention & Todo Inbox",
+    "description": "Two components under one plugin card: User Attention (online/away/offline presence, human-interaction gating, timeout policy and recommended-option auto-answer) and Todo Inbox (collect approvals/questions that were auto-rejected, review them later and let the model execute the original call once). Each component can be toggled independently in the plugin list."
+  }
+}

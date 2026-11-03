@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="User attention and todo inbox">
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#1f2937"/>
+  <circle cx="25" cy="24" r="7.5" fill="#e5e7eb"/>
+  <path d="M11 46c1.5-7.4 6.9-11.6 14-11.6 3.3 0 6.2.9 8.5 2.6" fill="none" stroke="#e5e7eb" stroke-width="4.2" stroke-linecap="round"/>
+  <path d="M41 41l3.2 3.2 6.3-7.2" fill="none" stroke="#34d399" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M41 50h10" fill="none" stroke="#e5e7eb" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="48" cy="15" r="7" fill="#22c55e"/>
+  <circle cx="48" cy="15" r="7" fill="none" stroke="#111827" stroke-width="2"/>
+</svg>

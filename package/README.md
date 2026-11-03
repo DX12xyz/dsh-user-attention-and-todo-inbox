@@ -1,0 +1,253 @@
+# 用户注意力与待办收件箱（@local/dsh-user-attention-and-todo-inbox）
+
+> 把用户此刻是否在界面旁变成可门控状态，把被最终拒绝的人类交互收进可复核的待办收件箱。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2da44e)](./LICENSE)
+
+**版本 1.5.0** · 平台 Web · MIT · 自包含单 tgz（bundle + 两个组件包）
+
+- bundle 包名：`@local/dsh-user-attention-and-todo-inbox`，版本 **1.5.0**
+- 组件包：`@local/dsh-user-attention-core`（Loader 行 `user-attention`）、`@local/dsh-todo-inbox`（行 `todo-inbox`），版本与 bundle 一致
+- 形态：**一个自包含 tgz**（bundle + 两个组件包用 `bundledDependencies` 打包，离线可装）
+- 另见：[TECHDOC.md](./TECHDOC.md)（技术细节）· [HISTVER.md](./HISTVER.md)（版本历史）
+
+---
+
+## 目录
+
+- [为什么需要它](#为什么需要它) · [特性速览](#特性速览) · [安装](#安装) · [快速开始](#快速开始)
+- [工具与功能一览](#工具与功能一览) · [配置](#配置)
+- [界面](#界面) · [数据与安全](#数据与安全) · [常见问题](#常见问题)
+- [目录结构](#目录结构) · [构建与测试](#构建与测试) · [已知限制](#已知限制)
+- [文档索引](#文档索引) · [许可](#许可)
+
+## 为什么需要它
+
+**结论：批准与提问都要等人回话，用户一走就吊在等待里；本插件把「人在不在」变成三态门控，把被最终拒绝的交互收进可复核的待办收件箱，AI 可凭一次授权续办。**
+
+DSH 里有两类必须由人类回应的交互：批准（`approval/request`）与提问（`user-questions/request`）。用户暂离时，这些交互需要按节奏提醒，并对每一次等待给出确定的处理结果；用户已离线时则立即拒绝。被最终拒绝的交互也需要一个可以被用户复核、之后让 AI 继续的出口。本插件就是这两个问题的组合答案：
+
+用户注意力组件把「用户此刻是否在界面旁」做成 `online` / `away` / `offline` 三态（含人类手动标记）。暂离期间，组件对两类人工交互多轮提醒，提醒耗尽后按策略（`reject` / `enqueue`）给出确定的结果；`enqueue` 策略下，被最终拒绝的人类交互在拒绝的同时会收进持久化的待办收件箱，供用户复核后由 AI 执行或取回答案（拒绝与入队同时发生，不是二选一）；已离线时立即拒绝，不呈现、不提醒、不重试。待办收件箱组件提供右栏待办页与三个 AI 工具，让用户复核待办，再由 AI 一次性执行或取回答案。
+
+```text
+用户注意力组件 = 状态机 + 人类交互门控 + 最终拒绝
+待办收件箱组件 = 决策收件箱 + 人工复核 + 一次执行/事后回答
+```
+
+### 一张插件卡，两个组件包
+
+一张插件卡下两个组件，各自一行、各自一个 Client 半身，可以在插件列表里**独立开关**：
+
+| 组件 | 包 / 行 | 做什么 | 单独启用时 |
+|---|---|---|---|
+| 用户注意力 | `@local/dsh-user-attention-core` / `user-attention` | 在线/暂离/离线状态机；`approval/request`、`user-questions/request` 门控；提醒重试与最终拒绝；`userAttention` 服务；超时策略与推荐项自动回答 | 没有待办消费者，`enqueue` 不生效（设置页不显示入队选项），门控照常 |
+| 待办收件箱 | `@local/dsh-todo-inbox` / `todo-inbox` | 收下被最终拒绝的批准/提问；右栏待办页与输入框高亮条；`todo_list` / `todo_get` / `todo_execute`；一次性授权 | 照常工作，bundle 设置页顶部显示橙色说明 |
+
+两者通过 `userAttention.onRejection()` 与 `todoInbox.takeApprovalGrant(callId)` 两个窄接口协作，没有共享模块：关掉任意一个，另一个都能单独加载。
+
+### 为什么必须两个组件包
+
+DSH 的 Client 模块（`dsh.client`）是**包级**声明，且同一个包不能出现在多条 active Loader 记录里（会报 `resolves from multiple active Loader sources`），带子路径的行又会被客户端发现逻辑跳过。所以「两个组件各自一个 Client 半身」只能靠两个独立的组件包实现。
+
+## 特性速览
+
+- **人类交互门控**：暂离期间对批准与提问多轮提醒（`awayRetryCount + 1` 个等待间隔），重试耗尽后按 `reject` / `enqueue` 策略最终拒绝；已离线时立即拒绝、不提醒
+- **最终拒绝进待办**：被最终拒绝的批准/提问收进待办收件箱，等待用户在右栏待办页复核
+- **三个 AI 工具**：`todo_list` / `todo_get` / `todo_execute`；批量一次最多 10 条，默认串行、首个失败即停
+- **一次性授权**：`todo_execute` 执行前 `registerGrant(callId, todoId, sessionId)` 登记本次执行的新 `callId`；该 `callId` 触发的审批请求由门控第一步 `takeTodoGrant(req.callId)` 命中直接放行（`allowed-once`），不再呈现第二张审批卡；TTL 5 分钟、取出即删
+- **界面齐全**：状态胶囊、提醒条、待办高亮条、右栏待办页四分段、只读历史页、合并设置页与危险区
+- **组件独立开关**：两个组件包没有共享模块，关掉任一个另一个都能单独加载
+- **单 tgz 离线安装**：npm `bundledDependencies` 把两个组件塞进 bundle 自己的 `node_modules/@local/...`，仍只有一个 tgz
+
+## 安装
+
+在插件管理里安装本 tgz（`plugin_manager` → `install_bundle`，`target` 传绝对路径），或：
+
+`1.5.0` 的安装包 `local-dsh-user-attention-and-todo-inbox-1.5.0.tgz` 由仓库 `releases/` 目录直接提供（见下方「从仓库下载部署」，无需本地构建）；从源码构建时按「构建与测试」打包生成。
+
+```powershell
+dsh plugin --profile <profile> add "file:<绝对路径>/local-dsh-user-attention-and-todo-inbox-1.5.0.tgz"
+```
+
+装完刷新页面（Client 模块在页面重载后生效），首次安装或新增行需要重启一次 DSH。
+
+### 从仓库下载部署
+
+本仓库的 `releases/` 目录（GitHub 上对应 Releases 页面）直接提供该版本的 `.tgz`，无需本地构建：
+
+1. 下载 `local-dsh-user-attention-and-todo-inbox-1.5.0.tgz`；
+2. 安装：
+
+   ```powershell
+   dsh plugin --profile <profile> add "file:<下载目录>\\local-dsh-user-attention-and-todo-inbox-1.5.0.tgz"
+   ```
+
+3. 重启 DSH（Host 半身生效；Client 半身刷新页面即可）。
+
+### 卸载与残留清理
+
+`plugin_manager` → `remove_bundle` 会连同两个组件行一起移除。设置页保存过的配置会写回 profile 覆盖层，卸载后请检查 profile 的 `cordis.patch.yml`，删掉 `- id: user-attention` / `- id: todo-inbox` 的覆盖行；这些行指向已不存在的包，Loader 启动时会报找不到并跳过（不影响其他插件）。
+
+想保留某行、只改其中几项时注意：Loader 对 `config` 是**整体替换**而不是深合并，覆盖块里必须写全该行需要的字段，只写一半会把其余字段打回代码默认值。
+
+## 快速开始
+
+1. **安装**：按上一节把 tgz 装进目标 profile，刷新页面；首次安装或新增 Loader 行需要重启一次 DSH。
+2. **状态胶囊**：输入框下方出现状态胶囊，显示在线/暂离/离线、手动标记与暂离倒计时，点击可手动切换。怎么算装好：插件列表出现一张插件卡、卡下两行组件、两行可独立开关，装完刷新页面后输入框下方出现状态胶囊即说明 Client 半身加载成功；若没有，检查 profile 里两行是否都在、是否需要重启 Host 或刷新页面。
+3. **右栏待办页**：右侧栏的待办入口提供「待审核 / 已操作 / 失败 / 历史」四个分段，「本会话 / 全部会话」是四个分段共用的唯一选择。
+4. **合并设置页**：插件卡详情底部管理自动入队、批准超时、提问超时、优先推荐；待办可用且自动入队开启时还可见红色危险框「释放并删除待办缓存」。
+5. **AI 侧**：暂离期间 AI 发起的批准与提问会被门控，提醒重试耗尽后按配置最终拒绝；已离线时直接拒绝。当待办收件箱收下拒绝时，模型收到的说明会追加一句「已进待办，用户批准/回答后调用 `todo_execute`，不要自己重试」，AI 可用 `todo_list` / `todo_get` 查看待办。
+
+## 工具与功能一览
+
+| 名称 | 一句话 | 详见 TECHDOC |
+|---|---|---|
+| 用户注意力组件（行 `user-attention`） | 在线/暂离/离线状态机 + 人类交互门控 + 最终拒绝 + `userAttention` 服务 | [§1.4](./TECHDOC.md#14-注意力组件-host-半身) |
+| 待办组件（行 `todo-inbox`） | 决策收件箱 + 人工复核 + 一次执行/事后回答 + `todoInbox` 服务 | [§1.5](./TECHDOC.md#15-待办组件-host-半身) |
+| `todo_list` / `todo_get` / `todo_execute` | 列当前会话待办 / 查详情 / 执行或取回答案（支持批量 ≤10 条） | [§2.1](./TECHDOC.md#21-三个-ai-工具) |
+| 一次性 approval grant | `todo_execute` 执行前 `registerGrant(callId, todoId, sessionId)` 登记 grant；`takeApprovalGrant(callId)` 由门控取出即删，只对本次执行的新 `callId` 有效，TTL 5 分钟 | [§4.2](./TECHDOC.md#42-一次性-grant-与-ttl) |
+| 状态胶囊 / 提醒条（注意力 Client） | 输入框下方状态显示；页面顶层提醒浮层 | [§1.6](./TECHDOC.md#16-两个-client-半身) |
+| 右栏待办页 / 高亮条（待办 Client） | 待办复核界面与输入框高亮条，四分段共用一个作用域选择 | [§1.6.3](./TECHDOC.md#163-待办-client) |
+| 合并设置页 / 危险区 | 自动入队、批准/提问超时、优先推荐，以及长按 5 秒的「释放并删除待办缓存」（`POST /api/todo-inbox/purge`） | [§1.6.2](./TECHDOC.md#162-注意力-client) |
+| 组件边界与降级 | 任一侧缺失时另一侧行为的完整对照 | [§1.7](./TECHDOC.md#17-组件边界与降级) |
+| `/api/user-attention/*`、`/api/todo-inbox/*` 路由 | Host 半身全部 HTTP 接口 | [§2.2 / §2.3](./TECHDOC.md#2-工具与-api-参考) |
+| 数据文件 | `$DSH_HOME/.user-attention/state.json`、`$DSH_HOME/.dsh-todo-inbox/state.json`、只读历史 `$DSH_HOME/.dsh-todo-inbox/history.json` | [§3](./TECHDOC.md#3-状态与持久化) |
+| 打包产物与校验 | 单个自包含 tgz 的产物格式与内容校验 | [§7.1](./TECHDOC.md#71-打包产物与校验) |
+
+## 配置
+
+两个组件行各自有 config（写在 bundle 补丁里，用户保存时写回 profile 覆盖层）。常用字段：
+
+| 设置 | 行 | 默认（补丁值） | 说明 |
+|---|---|---|---|
+| 自动入队 | `user-attention.todoAutoEnqueue` | 开 | 关闭后超时不再入队；已有待办仍可查看 |
+| 批准超时 | `user-attention.approvalTimeoutAction` | `enqueue` | `reject` / `enqueue` |
+| 提问超时 | `user-attention.questionTimeoutAction` | `enqueue` | `reject` / `enqueue` |
+| 优先推荐 | `user-attention.preferRecommended` | 关 | 有 `(Recommended)` / `（推荐）` 标记时按推荐项回答 |
+| 空闲判定 | `user-attention.idleTimeoutMs` | `300000` | 空闲多久判定为暂离 |
+| 暂离重试 | `user-attention.awayRetryCount` | `5` | 0–5 次 |
+| 轮询间隔 | `todo-inbox.pollIntervalMs` | `2000` | 客户端轮询待办状态 |
+| 待办上限 | `todo-inbox.maxTodos` | `200` | 超出后不再自动入队 |
+
+上表的「默认」是 bundle 补丁里写死的生效值；代码默认可能更保守（例如 `awayRetryCount` 代码默认 2、补丁值 5，`approvalTimeoutAction` 代码默认 `reject`、补丁值 `enqueue`），完整对照见 [TECHDOC 的「5. 配置字段」](./TECHDOC.md#5-配置字段)。
+
+后两行属于待办行：合并设置页只写注意力行，待办行字段目前没有设置页 UI 配置入口，需改 profile 补丁或调 `POST /api/todo-inbox/config`。
+
+完整字段表、路由表与状态机细节见 [TECHDOC.md](./TECHDOC.md#5-配置字段)。
+
+## 界面
+
+- **状态胶囊**：输入框下方，显示在线/暂离/离线、手动标记与暂离倒计时；点击可手动切换。
+- **提醒条**：暂离重试与最终拒绝时出现在页面顶层（带提示音）。
+- **待办高亮条**：输入框上方，显示当前会话（及其他会话）待审核数量，点击打开右栏；最新一条已操作时提供「应用操作」按钮（只改文案，行为仍是只向来源会话发送最新一条的执行请求）。
+- **右侧栏待办页**：待审核 / 已操作 / 失败 / 历史 四个分段。待审核支持批准、拒绝、回答；已操作同时收「批准」与「拒绝」两种结果的条目（计数合并），批准的条目可「单次应用（发送回答/执行请求）」，已拒绝的只显示「返回修改」（置回待审核并保留草稿答案），历史为只读。拒绝一个待审核条目只会把它移进「已操作」，不会立即删除，也不会通知 AI；`rejected` 只在点「应用操作」或 AI 调用 `todo_list` / `todo_get` / `todo_execute` 时归档删除（`outcome='rejected'`）。失败待办的拒绝仍保持原有行为：通知来源会话并归档删除。
+  四个分段共用同一套页面骨架：标题行（计数 + 刷新）、作用域行（本会话 / 全部会话）、分段行、状态行（加载中 / 错误）与卡片列表；历史只是换一个只读数据源，排布与交互（刷新、作用域切换、分页、空态/错误态）与其它分段一致。
+  「本会话 / 全部会话」是四个分段**共用的唯一选择**：在收件箱选完再点「历史」不会跳变，切换分段也不改变它。
+  **默认值按会话新旧决定**：全新会话（还没有任何对话内容）默认「全部会话」；已有内容的会话（哪怕当前没有任何待办）默认「本会话」；用户手动点选后保持其选择。新会话发出第一条消息后，下一轮轮询会把 `sessionHasContent` 置为 true，未被手动覆盖的默认值随之切到「本会话」。
+- **历史页**（只读）：已执行 / 已拒绝 / 失败 / 已重启 / 已回答的归档；沿用同一个作用域选择（服务端仍按 `scope=session|all` 严格隔离），懒加载分页，不提供恢复、批准或重放。每条显示生成时间、审批时间、执行时间、归档时间与审批结果；问题型条目只读展示全部选项、选中项与自定义回答。
+- **提问表单**（问题型待办）：按 `multiSelect` 渲染单选或复选。**单选题的自定义与预设选项互斥**——「自定义」是选项组末尾的一个 radio，选了任一预设选项会清空文本框里的自定义，填了非空自定义会清空已选选项，提交时只带其中一种；**多选题保持现状**，选项可多选，且允许在选项之外补充自定义回答，两者同时提交。单选题没有预设选项时只显示文本框，仍可提交。
+- **合并设置页**：插件卡详情底部，管理自动入队、批准超时、提问超时、优先推荐（由注意力组件提供）。待办组件可用且自动入队开启时，超时设置之后还有一个红色危险框「释放并删除待办缓存」：长按按钮 **5 秒**确认后调用 `POST /api/todo-inbox/purge`，一次性删除未审批、未执行与历史的待办缓存（正在执行的待办保留），并清空历史归档与分支复制记录；成功后页内待办列表立即刷新，不刷新整页。
+
+## 数据与安全
+
+数据文件：`$DSH_HOME/.user-attention/state.json`（手动状态）、`$DSH_HOME/.dsh-todo-inbox/state.json`（待办）、只读历史 `$DSH_HOME/.dsh-todo-inbox/history.json`。
+
+- 待办只持久化**脱敏参数预览 + 参数哈希**；完整参数在 `todo_execute` 时从来源会话日志读回并校验。
+- **分支对话复制待办**：从既有会话派生子会话时（`session/created` 里 `header.parentSession` + `header.isSeeded`），原会话里 `pending` / `approved` 的待办会自动复制一份到新分支——新 id、`sessionId` 改为分支会话、新增 `originSessionId` 指回原会话，其余字段原样保留，原会话待办不变；`failed` / `executing` / `restarting` / `rejected` 不复制。同一分支只复制一次（记录随 `state.json` 持久化，恢复分支或宿主重启也不会重复），分支里已有任何待办时也不再复制。执行时 `todo_execute` 按 `originSessionId` 回原会话日志取原始参数（分支日志里没有父会话的 `tool/call`），哈希校验不变。
+- `todo_execute` 必须由来源会话的存活 AI 调用；跨会话、未批准/未回答、仅复核元工具、日志缺失、哈希不符一律拒绝。`restart_dsh_*` 已放开：真正的重启类工具执行前落 `restarting`，宿主重启后按“已执行（结果未知）”归档，不再误报 `failed`。
+- 批量执行：一次最多 10 条；默认串行、首个失败即停（`continueOnError` 可改为继续）；并行并发取 DSH 官方 Agent 循环的「并行工具调用数」（不叠加自定义上限），并行允许包含重启类工具。
+- 历史是只读归档：保存问题快照与用户答案（有界），但**不注册任何 AI 工具**，没有恢复/批准/重放入口；界面与其它分段共用同一个「本会话 / 全部会话」选择，服务端仍按 `scope=session` / `scope=all` 严格隔离，前者只返回当前会话。
+- 通过待办安装/卸载插件会热重载 Host：这类执行在落盘时带 `reloadExpected`，重启后按“已执行（结果未知）”归档，不再误报失败。
+- 一次性 approval grant：`todo_execute` 执行前把 grant 登记在本次执行的新 `callId` 名下；该 `callId` 的审批请求被门控第一步 `takeTodoGrant(req.callId)` 命中即直接放行（`allowed-once`）、取出即删，TTL 5 分钟。
+- **危险操作（1.5.0）**：`POST /api/todo-inbox/purge` 只由本机 UI 在 5 秒长按后调用，删除 `pending` / `approved` / `rejected` / `failed` 待办，清空历史、`forkedSessions` 与一次性 grant，并立即写回空的 `state.json` / `history.json`（**文件保留**，不删除）。`executing` / `restarting` 一律保留，执行结束后照常归档或删除；接口幂等，响应带删除/保留条数。
+- 待办不过期；待审核条目可以拒绝，已拒绝条目可以「返回修改」。执行失败保留 `failed` 供检查/重试，失败条目的拒绝会直接归档删除。
+
+## 常见问题
+
+- **两个组件必须一起开吗？** 不必。两者没有共享模块，靠 `userAttention.onRejection()` 与 `todoInbox.takeApprovalGrant(callId)` 两个窄接口协作，关掉任意一个，另一个都能单独加载。
+- **只开待办、不开注意力会怎样？** 待办照常工作，bundle 设置页顶部显示橙色说明；已有待办仍可复核/执行，但不会凭空产生新待办（入队依赖注意力的拒绝事件）。
+- **只开注意力、不开待办会怎样？** `enqueue` 没有消费者，不产生入队效果（设置页不显示入队选项），门控与最终拒绝照常。
+- **高亮条上的「应用操作」会应用所有待办吗？** 不会。仍是只向来源会话发送最新一条的执行请求；逐条应用用卡片上的「单次应用（发送回答/执行请求）」。
+- **`local-dsh-user-attention-and-todo-inbox-1.5.0.tgz` 从哪里获取？** 仓库 `releases/` 目录（GitHub 上对应 Releases 页面）直接提供该版本的 `.tgz`，无需本地构建；从源码构建时按「构建与测试」打包生成。
+- **点「释放并删除待办缓存」会删掉文件吗？** 不会（1.5.0）：该操作只清空待办、历史与分支复制记录并写回空的 `state.json` / `history.json`，文件本身保留，不删除。
+
+## 目录结构
+
+安装产物是一个自包含 tgz：两个组件以完整包的形式躺在 bundle 自己的 `node_modules/@local/` 下（用 npm `bundledDependencies` 打包），仍然只有一个 tgz：
+
+```text
+local-dsh-user-attention-and-todo-inbox-1.5.0.tgz
+└─ package/
+   ├─ package.json            # bundle：dsh.bundle.patch + dependencies
+   ├─ cordis.patch.yml        # 两行 insert：user-attention / todo-inbox
+   ├─ icon.svg  locale/       # 插件卡图标与文案
+   └─ node_modules/@local/
+      ├─ dsh-user-attention-core/   # 组件 1（含自己的 client.js / locale / icon）
+      └─ dsh-todo-inbox/            # 组件 2
+```
+
+源码仓库里对应的工作目录：
+
+```text
+pod/dsh-user-attention-and-todo-inbox/
+├─ package.json          # bundle 清单（dsh.bundle.patch / dependencies / icon）
+├─ cordis.patch.yml      # 两行 insert 与默认配置
+├─ icon.svg  locale/     # 插件卡资源
+├─ README.md / TECHDOC.md / HISTVER.md
+└─ components/
+   ├─ attention/         # @local/dsh-user-attention-core
+   │  ├─ index.js client.js locale/ icon.svg README.md test/
+   └─ todo-inbox/        # @local/dsh-todo-inbox
+      ├─ index.js client.js locale/ icon.svg README.md test/
+```
+
+## 构建与测试
+
+```powershell
+# 组件单测
+node pod/dsh-user-attention-and-todo-inbox/components/attention/test/host-state-machine.test.mjs   # 19/19
+node pod/dsh-user-attention-and-todo-inbox/components/todo-inbox/test/todo.test.mjs                 # 49/49（Host；含 rejected/restore、删除时机、sessionHasContent、分支复制、purge）
+node pod/dsh-user-attention-and-todo-inbox/components/todo-inbox/test/client.test.mjs               # 29/29（Client 渲染；含分段改名/合并计数、rejected 只读与返回修改、草稿预填）
+
+# 打成单个自包含 tgz（零依赖 CLI；组件按 components/*/package.json 的包名自动发现）
+node tools/dsh-bundle-pack/bin/dsh-bundle-pack.mjs pack pod/dsh-user-attention-and-todo-inbox -o DSH-Plugin-tgz
+
+# 检查产物，或把它反拆成多包布局
+node tools/dsh-bundle-pack/bin/dsh-bundle-pack.mjs inspect DSH-Plugin-tgz/local-dsh-user-attention-and-todo-inbox-1.5.0.tgz
+node tools/dsh-bundle-pack/bin/dsh-bundle-pack.mjs unpack  DSH-Plugin-tgz/local-dsh-user-attention-and-todo-inbox-1.5.0.tgz .tmp/rt
+```
+
+## 已知限制
+
+- 合并设置页只写注意力行：待办行没有设置页 UI 配置入口，改 `pollIntervalMs` / `maxTodos` 只能走 `POST /api/todo-inbox/config` 或改 profile 补丁（写回规则见 [TECHDOC §5.3](./TECHDOC.md#53-合并设置页写回哪一行)）。
+- 来源会话归档后待办仍在，但「应用操作」返回 `SESSION_NOT_LIVE`，需要先打开/恢复来源会话。
+- 执行结果只保留有界文本预览；完整输出查看工具自身的会话记录。
+- 重启类工具通过待办执行时拿不到返回值：宿主重启后按“已执行（结果未知）”归档，实际效果需人工确认；若重启工具本身报错（例如 `force_dangerous` 没有先被 `force_safeguard` 武装），待办保留为 `failed`。
+- 并行批量会在同一会话里并发执行多个工具；写同一文件等副作用冲突由调用方自行保证。
+- 历史全量保留、只做懒加载分页，`history.json` 会随时间增长。
+- 非重启类工具执行中途 Host 重启会把 `executing` 修复为 `failed`（结果未知，需人工检查）；重启类工具走 `restarting → restarted` 归档。
+- 当前 profile 审批策略为 `never` 时官方审批服务会在 waterfall 前短路，批准门控不会触发。
+- 冷会话（Host 尚未加载）没有活 Session 对象，`sessionHasContent` 返回 `null`，面板按“已有内容”处理（默认「本会话」）；打开/恢复该会话后随下一轮轮询恢复正常判断。
+- 在线投递不受监督：在线期间已投递的交互不归本插件管理，只有门控期间（暂离/离线）的交互受超时/撤回管理。
+
+## 文档索引
+
+| 文档 | 读者 | 内容 |
+|---|---|---|
+| [README.md](./README.md) | 所有人 | 定位、安装、快速上手、界面与常见问题 |
+| [HISTVER.md](./HISTVER.md) | 维护者 | 正式公开（**1.5.0**）及之后的变更记录 |
+| [HISTVER_legacy.md](./HISTVER_legacy.md) | 维护者 | 正式公开前的私有迭代记录，仅供参考 |
+| [TECHDOC.md](./TECHDOC.md) | 开发者/运维 | 架构、路由表、状态机、配置字段、打包与测试证据 |
+
+建议阅读顺序：README（定位、安装与最小上手）→ HISTVER（版本演进与兼容性）→ TECHDOC（开发与运维细节）。
+
+## 许可
+
+本文件以 MIT 许可发布，版权归 DX12_XYZ 所有。完整条款见仓库根 [LICENSE](./LICENSE)。
+
+Copyright (c) 2026 DX12_XYZ
+
+<!-- fused-by: deepseek-v4.1-flash -->
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
