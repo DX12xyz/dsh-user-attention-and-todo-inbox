@@ -5,11 +5,11 @@
 [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2da44e)](./LICENSE)
 
-**版本 1.5.0** · 平台 Web · MIT · 自包含单 tgz（bundle + 两个组件包）
+**版本 1.5.0** · 平台 Web · MIT · 自包含分发（bundle + 两个组件包）
 
 - bundle 包名：`@local/dsh-user-attention-and-todo-inbox`，版本 **1.5.0**
 - 组件包：`@local/dsh-user-attention-core`（Loader 行 `user-attention`）、`@local/dsh-todo-inbox`（行 `todo-inbox`），版本与 bundle 一致
-- 形态：**一个自包含 tgz**（bundle + 两个组件包用 `bundledDependencies` 打包，离线可装）
+- 形态：**仓库根即 bundle 包**；两个组件包以完整包形式随仓库分发（`bundledDependencies`，无需单独安装），仓库根 `npm pack` 可产出单个可离线安装的 tgz
 - 另见：[TECHDOC.md](./TECHDOC.md)（技术细节）· [HISTVER.md](./HISTVER.md)（版本历史）
 
 ---
@@ -58,42 +58,60 @@ DSH 的 Client 模块（`dsh.client`）是**包级**声明，且同一个包不�
 - **一次性授权**：`todo_execute` 执行前 `registerGrant(callId, todoId, sessionId)` 登记本次执行的新 `callId`；该 `callId` 触发的审批请求由门控第一步 `takeTodoGrant(req.callId)` 命中直接放行（`allowed-once`），不再呈现第二张审批卡；TTL 5 分钟、取出即删
 - **界面齐全**：状态胶囊、提醒条、待办高亮条、右栏待办页四分段、只读历史页、合并设置页与危险区
 - **组件独立开关**：两个组件包没有共享模块，关掉任一个另一个都能单独加载
-- **单 tgz 离线安装**：npm `bundledDependencies` 把两个组件塞进 bundle 自己的 `node_modules/@local/...`，仍只有一个 tgz
+- **自包含分发**：npm `bundledDependencies` 把两个组件塞进 bundle 自己的 `node_modules/@local/...`，仓库根 `npm pack` 仍是单个自包含 tgz
 
 ## 安装
 
-在插件管理里安装本 tgz（`plugin_manager` → `install_bundle`，`target` 传绝对路径），或：
+仓库根目录就是 bundle 包本身（`package.json`、`cordis.patch.yml`、`icon.svg`/`locale/`，两个组件包在根 `node_modules/@local/` 下），仓库不随附预打包的 `.tgz`。任选一种方式安装，下文以 Web profile（`web`）为例。装完刷新页面（Client 模块在页面重载后生效）；首次安装或新增 Loader 行需要重启一次 DSH。
 
-`1.5.0` 的安装包 `local-dsh-user-attention-and-todo-inbox-1.5.0.tgz` 由仓库 `releases/` 目录直接提供（见下方「从仓库下载部署」，无需本地构建）；从源码构建时按「构建与测试」打包生成。
+### 方式一：插件页安装（推荐，人类入口）
+
+1. 打开 DSH 插件页 →「安装插件」；
+2. 安装源填仓库地址 `https://github.com/DX12xyz/dsh-user-attention-and-todo-inbox`，或 git 简写 `github:DX12xyz/dsh-user-attention-and-todo-inbox`；
+3. 等待安装完成，按提示重启 DSH / 刷新页面。
+
+### 方式二：命令行从 git 源安装
 
 ```powershell
-dsh plugin --profile <profile> add "file:<绝对路径>/local-dsh-user-attention-and-todo-inbox-1.5.0.tgz"
+dsh plugin --profile web add github:DX12xyz/dsh-user-attention-and-todo-inbox
 ```
 
-装完刷新页面（Client 模块在页面重载后生效），首次安装或新增行需要重启一次 DSH。
+### 方式三：本地目录安装（改代码 / 离线可用）
 
-### 从仓库下载部署
+把仓库的 zip/tar 解压到本机，再把解压出来的仓库根目录装进 profile：
 
-本仓库的 `releases/` 目录（GitHub 上对应 Releases 页面）直接提供该版本的 `.tgz`，无需本地构建：
+```powershell
+dsh plugin --profile web add "link:<仓库根目录绝对路径>"
+```
 
-1. 下载 `local-dsh-user-attention-and-todo-inbox-1.5.0.tgz`；
-2. 安装：
+bundle 与两个组件包在同一个目录树下：两个组件从根 `node_modules/@local/` 解析，改完代码重启 DSH（Host 半身）或刷新页面（Client 半身）即可生效。
 
-   ```powershell
-   dsh plugin --profile <profile> add "file:<下载目录>\\local-dsh-user-attention-and-todo-inbox-1.5.0.tgz"
-   ```
+### 方式四：离线打包 tgz
 
-3. 重启 DSH（Host 半身生效；Client 半身刷新页面即可）。
+在仓库根目录打包，再安装产出的 tgz：
+
+```powershell
+cd <仓库根目录>
+npm pack
+# 产出 local-dsh-user-attention-and-todo-inbox-1.5.0.tgz
+dsh plugin --profile web add "file:<仓库根目录>/local-dsh-user-attention-and-todo-inbox-1.5.0.tgz"
+```
 
 ### 卸载与残留清理
 
-`plugin_manager` → `remove_bundle` 会连同两个组件行一起移除。设置页保存过的配置会写回 profile 覆盖层，卸载后请检查 profile 的 `cordis.patch.yml`，删掉 `- id: user-attention` / `- id: todo-inbox` 的覆盖行；这些行指向已不存在的包，Loader 启动时会报找不到并跳过（不影响其他插件）。
+卸载：
+
+```powershell
+dsh plugin --profile web remove @local/dsh-user-attention-and-todo-inbox
+```
+
+用插件页的 `plugin_manager` → `remove_bundle` 卸载时，会连同两个组件行一起移除。设置页保存过的配置会写回 profile 覆盖层，卸载后请检查 profile 的 `cordis.patch.yml`，删掉 `- id: user-attention` / `- id: todo-inbox` 的覆盖行；这些行指向已不存在的包，Loader 启动时会报找不到并跳过（不影响其他插件）。
 
 想保留某行、只改其中几项时注意：Loader 对 `config` 是**整体替换**而不是深合并，覆盖块里必须写全该行需要的字段，只写一半会把其余字段打回代码默认值。
 
 ## 快速开始
 
-1. **安装**：按上一节把 tgz 装进目标 profile，刷新页面；首次安装或新增 Loader 行需要重启一次 DSH。
+1. **安装**：按上一节安装，刷新页面；首次安装或新增 Loader 行需要重启一次 DSH。
 2. **状态胶囊**：输入框下方出现状态胶囊，显示在线/暂离/离线、手动标记与暂离倒计时，点击可手动切换。怎么算装好：插件列表出现一张插件卡、卡下两行组件、两行可独立开关，装完刷新页面后输入框下方出现状态胶囊即说明 Client 半身加载成功；若没有，检查 profile 里两行是否都在、是否需要重启 Host 或刷新页面。
 3. **右栏待办页**：右侧栏的待办入口提供「待审核 / 已操作 / 失败 / 历史」四个分段，「本会话 / 全部会话」是四个分段共用的唯一选择。
 4. **合并设置页**：插件卡详情底部管理自动入队、批准超时、提问超时、优先推荐；待办可用且自动入队开启时还可见红色危险框「释放并删除待办缓存」。
@@ -169,53 +187,39 @@ dsh plugin --profile <profile> add "file:<绝对路径>/local-dsh-user-attention
 - **只开待办、不开注意力会怎样？** 待办照常工作，bundle 设置页顶部显示橙色说明；已有待办仍可复核/执行，但不会凭空产生新待办（入队依赖注意力的拒绝事件）。
 - **只开注意力、不开待办会怎样？** `enqueue` 没有消费者，不产生入队效果（设置页不显示入队选项），门控与最终拒绝照常。
 - **高亮条上的「应用操作」会应用所有待办吗？** 不会。仍是只向来源会话发送最新一条的执行请求；逐条应用用卡片上的「单次应用（发送回答/执行请求）」。
-- **`local-dsh-user-attention-and-todo-inbox-1.5.0.tgz` 从哪里获取？** 仓库 `releases/` 目录（GitHub 上对应 Releases 页面）直接提供该版本的 `.tgz`，无需本地构建；从源码构建时按「构建与测试」打包生成。
+- **`local-dsh-user-attention-and-todo-inbox-1.5.0.tgz` 从哪里获取？** 仓库不再随附预打包 tgz：需要离线包时在仓库根目录执行 `npm pack` 自行打包（产出该文件名），或直接用 git 源 / 本地目录安装（见[安装](#安装)）。
 - **点「释放并删除待办缓存」会删掉文件吗？** 不会（1.5.0）：该操作只清空待办、历史与分支复制记录并写回空的 `state.json` / `history.json`，文件本身保留，不删除。
 
 ## 目录结构
 
-安装产物是一个自包含 tgz：两个组件以完整包的形式躺在 bundle 自己的 `node_modules/@local/` 下（用 npm `bundledDependencies` 打包），仍然只有一个 tgz：
+仓库根目录就是 bundle 包本身，两个组件包以完整包的形式躺在根 `node_modules/@local/` 下（用 npm `bundledDependencies` 打包），安装时仍然只有一个包：
 
 ```text
-local-dsh-user-attention-and-todo-inbox-1.5.0.tgz
-└─ package/
-   ├─ package.json            # bundle：dsh.bundle.patch + dependencies
-   ├─ cordis.patch.yml        # 两行 insert：user-attention / todo-inbox
-   ├─ icon.svg  locale/       # 插件卡图标与文案
-   └─ node_modules/@local/
-      ├─ dsh-user-attention-core/   # 组件 1（含自己的 client.js / locale / icon）
-      └─ dsh-todo-inbox/            # 组件 2
-```
-
-源码仓库里对应的工作目录：
-
-```text
-pod/dsh-user-attention-and-todo-inbox/
-├─ package.json          # bundle 清单（dsh.bundle.patch / dependencies / icon）
-├─ cordis.patch.yml      # 两行 insert 与默认配置
-├─ icon.svg  locale/     # 插件卡资源
+<仓库根目录>
+├─ package.json            # bundle：dsh.bundle.patch + dependencies + bundledDependencies
+├─ cordis.patch.yml        # 两行 insert：user-attention / todo-inbox
+├─ icon.svg  locale/       # 插件卡图标与文案
 ├─ README.md / TECHDOC.md / HISTVER.md
-└─ components/
-   ├─ attention/         # @local/dsh-user-attention-core
-   │  ├─ index.js client.js locale/ icon.svg README.md test/
-   └─ todo-inbox/        # @local/dsh-todo-inbox
-      ├─ index.js client.js locale/ icon.svg README.md test/
+└─ node_modules/@local/
+   ├─ dsh-user-attention-core/   # 组件 1（含自己的 client.js / locale / icon）
+   └─ dsh-todo-inbox/            # 组件 2
 ```
+
+- **bundle 清单是根 `package.json`**：`dsh.bundle.patch` 指向根 `cordis.patch.yml`，`bundledDependencies` 声明两个组件包。
+- **两个组件包在 `node_modules/@local/`**：各自带 `package.json`、`index.js` / `client.js`、`locale/`、`icon.svg`，随仓库一起分发，不需要单独安装。
 
 ## 构建与测试
 
+本仓库只随附构建产物：仓库根是 bundle 包本身，两个组件包以完整包的形式在根 `node_modules/@local/` 下，与安装到 profile 后的加载形态一致；组件源码、单元测试与打包脚本属于开发工作区，不随本仓库分发。
+
+需要离线安装包时，在仓库根打包即可（`bundledDependencies` 会带上两个组件）：
+
 ```powershell
-# 组件单测
-node pod/dsh-user-attention-and-todo-inbox/components/attention/test/host-state-machine.test.mjs   # 19/19
-node pod/dsh-user-attention-and-todo-inbox/components/todo-inbox/test/todo.test.mjs                 # 49/49（Host；含 rejected/restore、删除时机、sessionHasContent、分支复制、purge）
-node pod/dsh-user-attention-and-todo-inbox/components/todo-inbox/test/client.test.mjs               # 29/29（Client 渲染；含分段改名/合并计数、rejected 只读与返回修改、草稿预填）
+npm pack
+# 产出 local-dsh-user-attention-and-todo-inbox-1.5.0.tgz
 
-# 打成单个自包含 tgz（零依赖 CLI；组件按 components/*/package.json 的包名自动发现）
-node tools/dsh-bundle-pack/bin/dsh-bundle-pack.mjs pack pod/dsh-user-attention-and-todo-inbox -o DSH-Plugin-tgz
-
-# 检查产物，或把它反拆成多包布局
-node tools/dsh-bundle-pack/bin/dsh-bundle-pack.mjs inspect DSH-Plugin-tgz/local-dsh-user-attention-and-todo-inbox-1.5.0.tgz
-node tools/dsh-bundle-pack/bin/dsh-bundle-pack.mjs unpack  DSH-Plugin-tgz/local-dsh-user-attention-and-todo-inbox-1.5.0.tgz .tmp/rt
+# 可选：核对产物里的两个组件
+tar -tzf local-dsh-user-attention-and-todo-inbox-1.5.0.tgz | grep "node_modules/@local/"
 ```
 
 ## 已知限制

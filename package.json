@@ -2,7 +2,7 @@
   "name": "@local/dsh-user-attention-and-todo-inbox",
   "version": "1.5.0",
   "private": true,
-  "description": "用户注意力与超时待办收件箱 bundle：一张插件卡下两个可独立启停的组件。用户注意力组件负责在线/暂离/离线状态机、人类交互门控、userAttention 服务与超时策略；待办收件箱组件负责持久审核队列、todo_list/get/execute、一次性授权与右栏界面。单 tgz 自包含安装（bundledDependencies 把两个组件装进本包 node_modules），不依赖工作区路径或 registry。文档：README.md / TECHDOC.md / HISTVER.md。",
+  "description": "用户注意力与超时待办收件箱 bundle：一张插件卡下两个可独立启停的组件。用户注意力组件负责在线/暂离/离线状态机、人类交互门控、userAttention 服务与超时策略；待办收件箱组件负责持久审核队列、todo_list/get/execute、一次性授权与右栏界面。自包含分发（bundledDependencies 把两个组件装进本包 node_modules；仓库根 npm pack 可产出单个可离线安装的 tgz），不依赖工作区路径或 registry。文档：README.md / TECHDOC.md / HISTVER.md。",
   "type": "module",
   "icon": "./icon.svg",
   "files": [
